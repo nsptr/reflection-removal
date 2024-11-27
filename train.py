@@ -34,11 +34,11 @@ class ReflectionRemovalModel(torch.nn.Module):
         num_heads = [3, 6, 12, 24]
         window_size = 8
         
-        print("\nModel dimensions:")
-        print(f"Initial hidden dim: {dims[0]}")
-        for i, dim in enumerate(dims):
-            print(f"Stage {i} dim: {dim}")
-        print("\n")
+        # print("\nModel dimensions:")
+        # print(f"Initial hidden dim: {dims[0]}")
+        # for i, dim in enumerate(dims):
+        #     print(f"Stage {i} dim: {dim}")
+        # print("\n")
         
         # Initial projection
         self.patch_embed = torch.nn.Conv2d(6, dims[0], 1)
@@ -72,13 +72,13 @@ class ReflectionRemovalModel(torch.nn.Module):
         self.final_layer = torch.nn.Conv2d(96, 3, 1)
         
     def forward(self, x, condition, t):
-        print("\nForward pass:")
+        # print("\nForward pass:")
         
         # Input processing
         x = torch.cat([x, condition], dim=1)
         x = self.patch_embed(x)
         t_emb = self.time_mlp(t)
-        print(f"After initial processing: {x.shape}")
+        # print(f"After initial processing: {x.shape}")
         
         # Encoder
         skip_connections = []
@@ -86,25 +86,25 @@ class ReflectionRemovalModel(torch.nn.Module):
             x = block(x, t_emb)
             if i < len(self.encoder_blocks) - 1:  # 마지막 블록의 출력은 저장하지 않음
                 skip_connections.append(x)
-                print(f"Saved skip connection {i}: {x.shape}")
+                # print(f"Saved skip connection {i}: {x.shape}")
         
         # Middle
         x = self.middle_block(x, t_emb)
-        print(f"After middle block: {x.shape}")
+        # print(f"After middle block: {x.shape}")
         
         # Decoder with skip connections
         for i, (block, skip) in enumerate(zip(self.decoder_blocks, reversed(skip_connections))):
-            print(f"\nProcessing decoder block {i}")
-            print(f"Current feature shape: {x.shape}")
-            print(f"Skip connection shape: {skip.shape}")
+            # print(f"\nProcessing decoder block {i}")
+            # print(f"Current feature shape: {x.shape}")
+            # print(f"Skip connection shape: {skip.shape}")
             x = torch.cat([x, skip], dim=1)
-            print(f"After concatenation: {x.shape}")
+            # print(f"After concatenation: {x.shape}")
             x = block(x, t_emb)
-            print(f"After decoder block: {x.shape}")
+            # print(f"After decoder block: {x.shape}")
         
         # Final layer
         x = self.final_layer(x)
-        print(f"Final output: {x.shape}")
+        # print(f"Final output: {x.shape}")
         
         return x
 
@@ -116,7 +116,7 @@ class StageBlock(torch.nn.Module):
         self.is_encoder = is_encoder
         self.is_decoder = is_decoder
         
-        print(f"Initializing StageBlock: dim={dim}, {'encoder' if is_encoder else 'decoder' if is_decoder else 'middle'}")
+        # print(f"Initializing StageBlock: dim={dim}, {'encoder' if is_encoder else 'decoder' if is_decoder else 'middle'}")
         
         # Channel adjustment for decoder
         if is_decoder:
@@ -131,23 +131,23 @@ class StageBlock(torch.nn.Module):
                 torch.nn.Conv2d(input_dim, dim, 1),
                 torch.nn.GELU()
             )
-            print(f"Decoder channel projection: {input_dim} -> {dim}")
+            # print(f"Decoder channel projection: {input_dim} -> {dim}")
             
             # Spatial upsampling
             if dim == 96:  # 마지막 decoder block
                 self.spatial_change = torch.nn.ConvTranspose2d(dim, dim, kernel_size=2, stride=2)
-                print(f"Decoder spatial change (final): {dim} -> {dim}")
+                # print(f"Decoder spatial change (final): {dim} -> {dim}")
             else:
                 self.spatial_change = torch.nn.ConvTranspose2d(dim, dim // 2, kernel_size=2, stride=2)
-                print(f"Decoder spatial change: {dim} -> {dim // 2}")
+                # print(f"Decoder spatial change: {dim} -> {dim // 2}")
         elif is_encoder and dim != 768:
             self.channel_proj = None
             self.spatial_change = torch.nn.Conv2d(dim, dim * 2, kernel_size=2, stride=2)
-            print(f"Encoder spatial change: {dim} -> {dim * 2}")
+            # print(f"Encoder spatial change: {dim} -> {dim * 2}")
         else:
             self.channel_proj = None
             self.spatial_change = None
-            print("No spatial change")
+            # print("No spatial change")
         
         # Time embedding
         self.time_proj = torch.nn.Sequential(
@@ -167,30 +167,30 @@ class StageBlock(torch.nn.Module):
             
     def forward(self, x, t_emb):
         B, C, H, W = x.shape
-        print(f"StageBlock input shape: {x.shape}, {'encoder' if self.is_encoder else 'decoder' if self.is_decoder else 'middle'}")
+        # print(f"StageBlock input shape: {x.shape}, {'encoder' if self.is_encoder else 'decoder' if self.is_decoder else 'middle'}")
         
         # Channel projection for decoder
         if self.channel_proj is not None:
             x = self.channel_proj(x)
-            print(f"After channel projection: {x.shape}")
+            # print(f"After channel projection: {x.shape}")
         
         # Time embedding
         t = self.time_proj(t_emb)
         t = t.view(-1, self.dim, 1, 1).expand(-1, -1, H, W)
         x = x + t
-        print(f"After time embedding: {x.shape}")
+        # print(f"After time embedding: {x.shape}")
         
         # Transformer blocks
         x_flat = x.flatten(2).transpose(1, 2)
         for block in self.blocks:
             x_flat = block(x_flat)
         x = x_flat.transpose(1, 2).reshape(B, -1, H, W)
-        print(f"After transformer blocks: {x.shape}")
+        # print(f"After transformer blocks: {x.shape}")
         
         # Spatial change
         if self.spatial_change is not None:
             x = self.spatial_change(x)
-            print(f"After spatial change: {x.shape}")
+            # print(f"After spatial change: {x.shape}")
         
         return x
 
@@ -204,9 +204,9 @@ def get_args():
 
 def main():
     args = get_args()
-    print("\nModel dimensions:")
+    # print("\nModel dimensions:")
     Config.print_dims()
-    print("\n")
+    # print("\n")
     # Update config with command line arguments
     Config.BATCH_SIZE = args.batch_size
     Config.NUM_EPOCHS = args.epochs
