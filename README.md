@@ -45,40 +45,41 @@ The model consists of three main components:
   - Timestep embedding for diffusion process
 
 ## Setup
-bash
-Create conda environment
-conda create -n reflection python=3.8
-conda activate reflection
-Install requirements
-pip install -r requirements.txt
+- bash
+- Create conda environment
+- conda create -n reflection python=3.8
+- conda activate reflection
+- Install requirements
+- pip install -r requirements.txt
 
 ## Training
-bash
-python train.py --batch-size 4 --epochs 100 --lr 2e-4
+- bash
+- python train.py --batch-size 4 --epochs 100 --lr 2e-4
 
 ## Project Structure
-reflection/
-├── models/
-│ ├── init.py
-│ ├── diffusion.py
-│ └── transformer.py
-├── utils/
-│ ├── init.py
-│ └── training.py
-├── train.py
-├── requirements.txt
-└── README.md
+- reflection/
+- ├── models/
+- │ ├── init.py
+- │ ├── diffusion.py
+- │ └── transformer.py
+- ├── utils/
+- │ ├── init.py
+- │ └── training.py
+- ├── train.py
+- ├── requirements.txt
+- └── README.md
 
 ## Training
 
-Training details are implemented in `train.py`. The model is trained using a diffusion-based approach with both reflection and reflection-free images.
+- Training details are implemented in `train.py`. 
+- The model is trained using a diffusion-based approach with both reflection and reflection-free images.
 
 ## Inference
 
-To run inference on a single image:
+- To run inference on a single image:
 
 bash
-python inference.py \
+- python inference.py \
 --input path/to/input/image.jpg \
 --output_dir ./outputs/sample1 \
 --checkpoint path/to/checkpoint.pth \
