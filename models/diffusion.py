@@ -12,11 +12,7 @@ class DiffusionModel(nn.Module):
         self.device = config.DEVICE
         
         # Define beta schedule
-        self.beta = self._linear_beta_schedule(
-            timesteps=config.TIMESTEPS,
-            beta_start=config.BETA_START,
-            beta_end=config.BETA_END
-        )
+        self.beta = torch.linspace(config.BETA_START, config.BETA_END, config.TIMESTEPS).to(self.device)
         
         # Pre-calculate diffusion parameters
         self.alpha = 1. - self.beta
@@ -24,52 +20,78 @@ class DiffusionModel(nn.Module):
         self.sqrt_alpha_hat = torch.sqrt(self.alpha_hat)
         self.sqrt_one_minus_alpha_hat = torch.sqrt(1. - self.alpha_hat)
         
-    def _linear_beta_schedule(self, timesteps, beta_start, beta_end):
-        return torch.linspace(beta_start, beta_end, timesteps, device=self.device)
-    
     def _extract(self, a, t, x_shape):
-        batch_size = t.shape[0]
-        out = a.gather(-1, t.cpu())
-        return out.reshape(batch_size, *((1,) * (len(x_shape) - 1))).to(t.device)
+        """Extract some coefficients at specified timesteps"""
+        batch_size = x_shape[0]
+        # t를 현재 디바이스로 이동
+        t = t.to(a.device)
+        out = a.gather(-1, t)
+        return out.reshape(batch_size, *((1,) * (len(x_shape) - 1)))
     
     def q_sample(self, x_start, t, noise=None):
         """Forward diffusion process"""
         if noise is None:
-            noise = torch.randn_like(x_start)
+            noise = torch.randn_like(x_start, device=x_start.device)
             
-        sqrt_alpha_hat_t = self._extract(self.sqrt_alpha_hat, t, x_start.shape)
-        sqrt_one_minus_alpha_hat_t = self._extract(self.sqrt_one_minus_alpha_hat, t, x_start.shape)
+        # 모든 텐서가 같은 디바이스에 있도록 보장
+        sqrt_alpha_hat_t = self._extract(self.sqrt_alpha_hat.to(x_start.device), t, x_start.shape)
+        sqrt_one_minus_alpha_hat_t = self._extract(self.sqrt_one_minus_alpha_hat.to(x_start.device), t, x_start.shape)
         
         return sqrt_alpha_hat_t * x_start + sqrt_one_minus_alpha_hat_t * noise
     
-    def p_losses(self, denoise_model, x_start, t, noise=None, loss_type="l2"):
-        """Calculate loss for training"""
+    def p_losses(self, denoise_model, x_start, condition, t, noise=None):
+        """Calculate loss with noise prediction and reconstruction"""
         if noise is None:
-            noise = torch.randn_like(x_start)
-            
-        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-        predicted_noise = denoise_model(x_noisy, t)
+            noise = torch.randn_like(x_start, device=x_start.device)
         
-        if loss_type == 'l1':
-            loss = F.l1_loss(noise, predicted_noise)
-        elif loss_type == 'l2':
-            loss = F.mse_loss(noise, predicted_noise)
-        else:
-            raise NotImplementedError()
-            
-        return loss
+        # 모든 입력을 동일한 디바이스로
+        x_start = x_start.to(self.device)
+        condition = condition.to(self.device)
+        t = t.to(self.device)
+        noise = noise.to(self.device)
+        
+        # Forward diffusion
+        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
+        
+        # 노이즈 예측
+        predicted_noise = denoise_model(x_noisy, condition, t)
+        
+        # 1. 노이즈 예측 loss (주요 loss)
+        noise_loss = F.mse_loss(noise, predicted_noise)
+        
+        # 2. 이미지 복원 loss (보조 loss)
+        # 예측된 노이즈로부터 원본 이미지 복원 시도
+        alpha = self._extract(self.alpha, t, x_start.shape)
+        alpha_hat = self._extract(self.alpha_hat, t, x_start.shape)
+        
+        # 복원된 이미지 계산
+        pred_x0 = (x_noisy - predicted_noise * (1 - alpha).sqrt()) / alpha.sqrt()
+        
+        # 복원 loss
+        recon_loss = F.l1_loss(x_start, pred_x0)
+        
+        # 최종 loss (가중치 조정 가능)
+        total_loss = noise_loss + 0.01 * recon_loss
+        
+        return total_loss
+    
+    def _predict_x0_from_noise(self, x_t, t, noise):
+        # 노이즈로부터 원본 이미지 예측
+        alpha_hat = self._extract(self.alpha_hat, t, x_t.shape)
+        sqrt_one_minus_alpha_hat = self._extract(self.sqrt_one_minus_alpha_hat, t, x_t.shape)
+        
+        return (x_t - sqrt_one_minus_alpha_hat * noise) / torch.sqrt(alpha_hat)
     
     @torch.no_grad()
-    def p_sample(self, model, x, t, t_index):
-        """Single step of reverse diffusion sampling"""
+    def p_sample(self, model, x, condition, t, t_index):
+        """Single step of reverse diffusion sampling with conditioning"""
         betas_t = self._extract(self.beta, t, x.shape)
         sqrt_one_minus_alphas_cumprod_t = self._extract(self.sqrt_one_minus_alpha_hat, t, x.shape)
         sqrt_recip_alphas_t = self._extract(torch.sqrt(1.0 / self.alpha), t, x.shape)
         
-        # Equation 11 in the paper
-        # Use model to predict the mean
+        model_output = model(x, condition, t)
         model_mean = sqrt_recip_alphas_t * (
-            x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t
+            x - betas_t * model_output / sqrt_one_minus_alphas_cumprod_t
         )
         
         if t_index == 0:
@@ -113,22 +135,25 @@ class ConditionedDiffusionModel(DiffusionModel):
     def __init__(self, config):
         super().__init__(config)
     
-    def p_losses(self, denoise_model, x_start, condition, t, noise=None, loss_type="l2"):
+    def p_losses(self, denoise_model, x_start, condition, t, noise=None):
         """Calculate loss for training with conditioning"""
         if noise is None:
             noise = torch.randn_like(x_start)
             
+        # 기존 노이즈 예측 loss
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
         predicted_noise = denoise_model(x_noisy, condition, t)
+        noise_loss = F.mse_loss(noise, predicted_noise)
         
-        if loss_type == 'l1':
-            loss = F.l1_loss(noise, predicted_noise)
-        elif loss_type == 'l2':
-            loss = F.mse_loss(noise, predicted_noise)
-        else:
-            raise NotImplementedError()
-            
-        return loss
+        # 추가: 이미지 복원 loss
+        # 예측된 노이즈를 사용하여 이미지 복원
+        pred_x0 = self._predict_x0_from_noise(x_noisy, t, predicted_noise)
+        reconstruction_loss = F.mse_loss(x_start, pred_x0)
+        
+        # 최종 loss는 두 loss의 조합
+        total_loss = noise_loss + 0.1 * reconstruction_loss
+        
+        return total_loss
     
     @torch.no_grad()
     def p_sample(self, model, x, condition, t, t_index):

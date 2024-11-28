@@ -29,10 +29,10 @@ class Config:
             dim = cls.HIDDEN_DIM * (2 ** i)
             print(f"Stage {i} dim: {dim}")
     # Training Configuration
-    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    DEVICE = "cuda" #if torch.cuda.is_available() else "cpu"
     BATCH_SIZE = 4
     NUM_EPOCHS = 100
-    LEARNING_RATE = 2e-4
+    LEARNING_RATE = 2e-5
     NUM_WORKERS = 4
     
     # Diffusion Configuration

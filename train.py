@@ -1,6 +1,6 @@
 # train.py
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 import argparse
 from pathlib import Path
 import math
@@ -204,58 +204,55 @@ def get_args():
 
 def main():
     args = get_args()
-    # print("\nModel dimensions:")
+    config = Config()
     Config.print_dims()
-    # print("\n")
+    
     # Update config with command line arguments
-    Config.BATCH_SIZE = args.batch_size
-    Config.NUM_EPOCHS = args.epochs
-    Config.LEARNING_RATE = args.lr
+    config.BATCH_SIZE = args.batch_size
+    config.NUM_EPOCHS = args.epochs
+    config.LEARNING_RATE = args.lr
     
-    # Create datasets
-    train_dataset = ReflectionDataset(
-        reflect_dir=Config.REFLECT_DIR,
-        clean_dir=Config.CLEAN_DIR,
-        transform=None
+    # Create full dataset
+    full_dataset = ReflectionDataset(
+        reflect_dir=config.REFLECT_DIR,
+        clean_dir=config.CLEAN_DIR
     )
     
-    # Split train dataset into train and validation sets
-    total_size = len(train_dataset)
-    train_size = int(0.9 * total_size)  # 90% for training
-    val_size = total_size - train_size   # 10% for validation
+    # Split dataset into train and validation (90:10)
+    train_size = int(0.9 * len(full_dataset))
+    val_size = len(full_dataset) - train_size
+    train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
     
-    train_dataset, val_dataset = torch.utils.data.random_split(
-        train_dataset, [train_size, val_size]
-    )
+    print(f"Total dataset size: {len(full_dataset)}")
+    print(f"Training samples: {len(train_dataset)}")
+    print(f"Validation samples: {len(val_dataset)}")
     
     # Create dataloaders
     train_loader = DataLoader(
         train_dataset,
-        batch_size=Config.BATCH_SIZE,
+        batch_size=config.BATCH_SIZE,
         shuffle=True,
-        num_workers=Config.NUM_WORKERS,
-        pin_memory=True
+        num_workers=config.NUM_WORKERS
     )
     
     val_loader = DataLoader(
         val_dataset,
-        batch_size=Config.BATCH_SIZE,
+        batch_size=config.BATCH_SIZE,
         shuffle=False,
-        num_workers=Config.NUM_WORKERS,
-        pin_memory=True
+        num_workers=config.NUM_WORKERS
     )
     
     # Initialize models
-    model = ReflectionRemovalModel(Config).to(Config.DEVICE)
+    model = ReflectionRemovalModel(config).to(config.DEVICE)
     
     # Initialize diffusion
-    diffusion = ConditionedDiffusionModel(Config).to(Config.DEVICE)
+    diffusion = ConditionedDiffusionModel(config).to(config.DEVICE)
     
     # Initialize trainer
     trainer = Trainer(
         model=model,
         diffusion=diffusion,
-        config=Config,
+        config=config,
         train_loader=train_loader,
         val_loader=val_loader
     )

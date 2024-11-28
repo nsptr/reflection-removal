@@ -128,32 +128,28 @@ class Trainer:
         self.model.train()
         total_loss = 0
         
-        with tqdm(self.train_loader, desc=f'Epoch {epoch}/{self.epochs}') as pbar:
-            for batch in pbar:
-                clean = batch['clean'].to(self.device)
-                reflected = batch['reflection'].to(self.device)
-                
-                b = clean.shape[0]
-                t = torch.randint(0, self.config.TIMESTEPS, (b,), device=self.device).long()
-                
-                loss = self.diffusion.p_losses(
-                    denoise_model=self.model,
-                    x_start=clean,
-                    condition=reflected,
-                    t=t,
-                    loss_type='l2'
-                )
-                
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
-                
-                total_loss += loss.item()
-                pbar.set_postfix({'loss': loss.item()})
-                
-                if self.config.WANDB_ENABLED:
-                    wandb.log({"batch_loss": loss.item()})
-        
+        for batch in tqdm(self.train_loader, desc=f"Epoch {epoch}/{self.config.NUM_EPOCHS}"):
+            clean_imgs = batch['clean'].to(self.device)
+            reflect_imgs = batch['reflection'].to(self.device)
+            
+            self.optimizer.zero_grad()
+            
+            # 랜덤 타임스텝 생성
+            t = torch.randint(0, self.config.TIMESTEPS, (clean_imgs.shape[0],), device=self.device)
+            
+            # loss_type 인자 제거
+            loss = self.diffusion.p_losses(
+                denoise_model=self.model,
+                x_start=clean_imgs,
+                condition=reflect_imgs,
+                t=t
+            )
+            
+            loss.backward()
+            self.optimizer.step()
+            
+            total_loss += loss.item()
+            
         return total_loss / len(self.train_loader)
     
     @torch.no_grad()
@@ -161,22 +157,22 @@ class Trainer:
         self.model.eval()
         total_loss = 0
         
-        for batch in tqdm(self.val_loader, desc='Validating'):
-            clean = batch['clean'].to(self.device)
-            reflected = batch['reflection'].to(self.device)
-            
-            b = clean.shape[0]
-            t = torch.randint(0, self.config.TIMESTEPS, (b,), device=self.device).long()
-            
-            loss = self.diffusion.p_losses(
-                denoise_model=self.model,
-                x_start=clean,
-                condition=reflected,
-                t=t,
-                loss_type='l2'
-            )
-            
-            total_loss += loss.item()
+        with torch.no_grad():
+            for batch in tqdm(self.val_loader, desc="Validating"):
+                clean_imgs = batch['clean'].to(self.device)
+                reflect_imgs = batch['reflection'].to(self.device)
+                
+                t = torch.randint(0, self.config.TIMESTEPS, (clean_imgs.shape[0],), device=self.device)
+                
+                # loss_type 인자 제거
+                loss = self.diffusion.p_losses(
+                    denoise_model=self.model,
+                    x_start=clean_imgs,
+                    condition=reflect_imgs,
+                    t=t
+                )
+                
+                total_loss += loss.item()
         
         return total_loss / len(self.val_loader)
     

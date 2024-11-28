@@ -7,44 +7,46 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 class ReflectionDataset(Dataset):
-    def __init__(self, reflect_dir, clean_dir, transform=None):
+    def __init__(self, reflect_dir, clean_dir):
         self.reflect_dir = reflect_dir
         self.clean_dir = clean_dir
+        self.image_pairs = []
         
-        # 기본 transform 설정
-        if transform is None:
-            self.transform = transforms.Compose([
-                transforms.Resize((256, 256)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.5, 0.5, 0.5], 
-                                  std=[0.5, 0.5, 0.5])
-            ])
-        else:
-            self.transform = transform
-            
-        # 이미지 파일 리스트 가져오기
-        self.image_files = sorted(list(reflect_dir.glob("*.jpg")))
+        print(f"Searching for images in: {reflect_dir}")
         
+        for root, dirs, files in os.walk(reflect_dir):
+            for file in files:
+                if file.endswith('.png') or file.endswith('.jpg'):
+                    mixture_path = os.path.join(root, file)
+                    clean_path = os.path.join(clean_dir, file)
+                    
+                    if os.path.exists(clean_path):
+                        self.image_pairs.append((mixture_path, clean_path))
+        
+        print(f"Found {len(self.image_pairs)} image pairs")
+    
     def __len__(self):
-        return len(self.image_files)
+        return len(self.image_pairs)
     
     def __getitem__(self, idx):
-        # 파일 경로
-        reflect_path = self.image_files[idx]
-        # clean 이미지는 같은 이름을 가진 파일
-        clean_path = self.clean_dir / reflect_path.name
+        mixture_path, clean_path = self.image_pairs[idx]
         
         # 이미지 로드
-        reflect_img = Image.open(reflect_path).convert('RGB')
+        mixture_img = Image.open(mixture_path).convert('RGB')
         clean_img = Image.open(clean_path).convert('RGB')
         
         # Transform 적용
-        if self.transform:
-            reflect_img = self.transform(reflect_img)
-            clean_img = self.transform(clean_img)
-            
+        transform = transforms.Compose([
+            transforms.Resize((256, 256)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+        ])
+        
+        mixture_img = transform(mixture_img)
+        clean_img = transform(clean_img)
+        
         return {
-            'reflection': reflect_img,
+            'reflection': mixture_img,
             'clean': clean_img,
-            'filename': reflect_path.name
+            'paths': (mixture_path, clean_path)  # 디버깅을 위해 경로도 반환
         }
